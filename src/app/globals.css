@@ -1,0 +1,39 @@
+@import "tailwindcss";
+
+:root {
+  --canvas: #f5f6f8;
+  --card: #ffffff;
+  --border: #e7e9ee;
+  --text-primary: #14171f;
+  --text-secondary: #6b7280;
+  --accent: #0e9f6e;
+  --accent-dark: #0b7d57;
+  --accent-soft: #e6f6ef;
+  --accent-softer: #f0faf5;
+  --bar-track: #eef0f3;
+}
+
+@theme inline {
+  --color-canvas: var(--canvas);
+  --color-card: var(--card);
+  --color-border: var(--border);
+  --color-text-primary: var(--text-primary);
+  --color-text-secondary: var(--text-secondary);
+  --color-accent: var(--accent);
+  --color-accent-dark: var(--accent-dark);
+  --color-accent-soft: var(--accent-soft);
+  --font-sans: var(--font-family-sans);
+}
+
+body {
+  background: var(--canvas);
+  color: var(--text-primary);
+  font-family: -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo",
+    "Pretendard Variable", Pretendard, Roboto, "Segoe UI", "Malgun Gothic",
+    sans-serif;
+  font-feature-settings: "tnum" 1;
+}
+
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+}
