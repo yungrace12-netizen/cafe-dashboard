@@ -12,13 +12,6 @@ export function unitCost(ing: Pick<IngredientRow, "package_amount" | "package_pr
   return ing.package_amount > 0 ? ing.package_price / ing.package_amount : 0;
 }
 
-/**
- * 모든 상품의 원가를 계산해서 Map으로 반환.
- * - 레시피(recipe_items)가 등록된 상품 → 원재료 사용량 × 단가 합산한 뒤, 생산개수(yield_count)로 나눠 개당 원가 산출
- *   (예: 반죽 1회 원가 2,800원이 6개 생산 → 개당 466.7원)
- * - 레시피가 없는 상품 → products.cost_price(수동입력값, 있다면) 사용
- * - 둘 다 없으면 null (원가 미확인)
- */
 export async function getProductCostMap(): Promise
   Map<string, { cost: number; source: "recipe" | "manual" } | null>
 > {
