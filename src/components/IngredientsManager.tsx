@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 
 interface Ingredient {
   id: string;
@@ -20,6 +20,8 @@ export function IngredientsManager({ initialIngredients }: { initialIngredients:
   const [unit, setUnit] = useState("g");
   const [packageAmount, setPackageAmount] = useState("");
   const [packagePrice, setPackagePrice] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
 
   async function reload() {
     const res = await fetch("/api/ingredients");
@@ -28,26 +30,52 @@ export function IngredientsManager({ initialIngredients }: { initialIngredients:
   }
 
   async function handleAdd() {
-    if (!name || !packageAmount || !packagePrice) return;
-    await fetch("/api/ingredients", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        name,
-        unit,
-        package_amount: Number(packageAmount),
-        package_price: Number(packagePrice),
-      }),
-    });
-    setName("");
-    setPackageAmount("");
-    setPackagePrice("");
-    reload();
+    setError(null);
+    if (!name || !packageAmount || !packagePrice) {
+      setError("이름, 팩 용량, 팩 가격을 모두 입력해주세요.");
+      return;
+    }
+    setSaving(true);
+    try {
+      const res = await fetch("/api/ingredients", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name,
+          unit,
+          package_amount: Number(packageAmount),
+          package_price: Number(packagePrice),
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.error ?? `저장 실패 (상태코드 ${res.status})`);
+        return;
+      }
+      setName("");
+      setPackageAmount("");
+      setPackagePrice("");
+      await reload();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "알 수 없는 오류가 발생했어요.");
+    } finally {
+      setSaving(false);
+    }
   }
 
   async function handleDelete(id: string) {
-    await fetch(`/api/ingredients?id=${id}`, { method: "DELETE" });
-    reload();
+    setError(null);
+    try {
+      const res = await fetch(`/api/ingredients?id=${id}`, { method: "DELETE" });
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.error ?? `삭제 실패 (상태코드 ${res.status})`);
+        return;
+      }
+      await reload();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "알 수 없는 오류가 발생했어요.");
+    }
   }
 
   return (
@@ -99,11 +127,15 @@ export function IngredientsManager({ initialIngredients }: { initialIngredients:
           </div>
           <button
             onClick={handleAdd}
-            className="rounded-full bg-accent px-4 py-1.5 text-sm font-medium text-white hover:bg-accent-dark"
+            disabled={saving}
+            className="rounded-full bg-accent px-4 py-1.5 text-sm font-medium text-white hover:bg-accent-dark disabled:opacity-50"
           >
-            추가
+            {saving ? "저장 중..." : "추가"}
           </button>
         </div>
+        {error && (
+          <p className="mt-3 rounded-lg bg-red-50 px-3 py-2 text-xs text-red-600">⚠ {error}</p>
+        )}
       </div>
 
       {/* 목록 */}
