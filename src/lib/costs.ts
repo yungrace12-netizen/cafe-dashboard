@@ -14,37 +14,41 @@ export function unitCost(ing: Pick<IngredientRow, "package_amount" | "package_pr
 
 /**
  * 모든 상품의 원가를 계산해서 Map으로 반환.
- * - 레시피(recipe_items)가 등록된 상품 → 원재료 사용량 × 단가 합산
+ * - 레시피(recipe_items)가 등록된 상품 → 원재료 사용량 × 단가 합산한 뒤, 생산개수(yield_count)로 나눠 개당 원가 산출
+ *   (예: 반죽 1회 원가 2,800원이 6개 생산 → 개당 466.7원)
  * - 레시피가 없는 상품 → products.cost_price(수동입력값, 있다면) 사용
  * - 둘 다 없으면 null (원가 미확인)
  */
-export async function getProductCostMap(): Promise<
+export async function getProductCostMap(): Promise
   Map<string, { cost: number; source: "recipe" | "manual" } | null>
 > {
   const [{ data: products }, { data: recipeItems }, { data: ingredients }] = await Promise.all([
-    supabaseAdmin.from("products").select("product_code, cost_price"),
+    supabaseAdmin.from("products").select("product_code, cost_price, yield_count"),
     supabaseAdmin.from("recipe_items").select("product_code, ingredient_id, quantity"),
     supabaseAdmin.from("ingredients").select("id, package_amount, package_price"),
   ]);
 
   const ingCostMap = new Map((ingredients ?? []).map((i) => [i.id, unitCost(i)]));
+  const yieldMap = new Map((products ?? []).map((p) => [p.product_code, p.yield_count || 1]));
 
-  const recipeCostByProduct = new Map<string, number>();
+  const recipeBatchCostByProduct = new Map<string, number>();
   const hasRecipe = new Set<string>();
   for (const item of recipeItems ?? []) {
     hasRecipe.add(item.product_code);
     const uCost = ingCostMap.get(item.ingredient_id) ?? 0;
-    recipeCostByProduct.set(
+    recipeBatchCostByProduct.set(
       item.product_code,
-      (recipeCostByProduct.get(item.product_code) ?? 0) + uCost * item.quantity
+      (recipeBatchCostByProduct.get(item.product_code) ?? 0) + uCost * item.quantity
     );
   }
 
   const result = new Map<string, { cost: number; source: "recipe" | "manual" } | null>();
   for (const p of products ?? []) {
     if (hasRecipe.has(p.product_code)) {
+      const batchCost = recipeBatchCostByProduct.get(p.product_code) ?? 0;
+      const yieldCount = yieldMap.get(p.product_code) ?? 1;
       result.set(p.product_code, {
-        cost: Math.round(recipeCostByProduct.get(p.product_code) ?? 0),
+        cost: Math.round(batchCost / (yieldCount || 1)),
         source: "recipe",
       });
     } else if (p.cost_price != null) {
