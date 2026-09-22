@@ -22,10 +22,11 @@ export interface ProductRow {
   product_name: string;
   category: string;
   cost_price: number | null; // 레시피 없을 때의 수동입력 폴백값
-  computed_cost: number | null;
+  computed_cost: number | null; // 개당 원가 (레시피 배치원가 ÷ 생산개수, 또는 수동입력값)
   cost_source: "recipe" | "manual" | null;
   sell_price: number | null; // 직접입력한 판매가 (우선순위 1)
   avg_sell_price: number; // 판매 데이터 기반 평균 판매가 (직접입력 없을 때 폴백)
+  yield_count: number; // 레시피 1회분으로 나오는 완제품 개수 (기본 1)
 }
 
 function formatWon(n: number) {
@@ -35,11 +36,13 @@ function formatWon(n: number) {
 function RecipeEditor({
   productCode,
   ingredients,
-  onCostChange,
+  yieldCount,
+  onBatchCostChange,
 }: {
   productCode: string;
   ingredients: Ingredient[];
-  onCostChange: (cost: number) => void;
+  yieldCount: number;
+  onBatchCostChange: (batchTotal: number) => void;
 }) {
   const [items, setItems] = useState<RecipeItem[] | null>(null);
   const [loading, setLoading] = useState(true);
@@ -53,17 +56,22 @@ function RecipeEditor({
     const loaded: RecipeItem[] = data.items ?? [];
     setItems(loaded);
     setLoading(false);
-    const total = loaded.reduce(
-      (s, it) => s + it.quantity * (it.ingredients.package_price / it.ingredients.package_amount),
-      0
-    );
-    onCostChange(Math.round(total));
   }
 
   useEffect(() => {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [productCode]);
+
+  const batchTotal = (items ?? []).reduce(
+    (s, it) => s + it.quantity * (it.ingredients.package_price / it.ingredients.package_amount),
+    0
+  );
+
+  useEffect(() => {
+    if (items != null) onBatchCostChange(Math.round(batchTotal));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [batchTotal, items]);
 
   async function handleAdd() {
     if (!selectedIngredient || !quantity) return;
@@ -86,6 +94,8 @@ function RecipeEditor({
   }
 
   if (loading) return <p className="py-3 text-xs text-text-secondary">불러오는 중...</p>;
+
+  const perUnit = yieldCount > 0 ? batchTotal / yieldCount : batchTotal;
 
   return (
     <div className="rounded-lg bg-canvas p-3">
@@ -149,6 +159,13 @@ function RecipeEditor({
           </button>
         </div>
       )}
+
+      {items && items.length > 0 && (
+        <p className="mt-3 border-t border-border pt-2 text-xs text-text-secondary">
+          배치(레시피 1회) 원가 {formatWon(Math.round(batchTotal))} ÷ 생산개수 {yieldCount}개 ={" "}
+          <span className="font-semibold text-text-primary">개당 {formatWon(Math.round(perUnit))}</span>
+        </p>
+      )}
     </div>
   );
 }
@@ -163,6 +180,8 @@ export function ProductsTable({
   const [rows, setRows] = useState(initialRows);
   const [expanded, setExpanded] = useState<string | null>(null);
   const [savingCode, setSavingCode] = useState<string | null>(null);
+  // 레시피 배치 총원가(생산개수 나누기 전) 저장 - yield_count 바뀔 때 재계산용
+  const [batchCosts, setBatchCosts] = useState<Record<string, number>>({});
 
   async function saveManualCost(code: string, value: string) {
     const cost_price = value === "" ? null : Number(value);
@@ -200,11 +219,43 @@ export function ProductsTable({
     }
   }
 
-  function handleRecipeCostChange(code: string, cost: number) {
+  async function saveYieldCount(code: string, value: string) {
+    const yield_count = value === "" ? 1 : Math.max(1, Number(value));
+    setSavingCode(code);
+    try {
+      await fetch("/api/products", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ product_code: code, yield_count }),
+      });
+      setRows((prev) =>
+        prev.map((r) => {
+          if (r.product_code !== code) return r;
+          const batchCost = batchCosts[code];
+          const newComputed =
+            r.cost_source === "recipe" && batchCost != null
+              ? Math.round(batchCost / yield_count)
+              : r.computed_cost;
+          return { ...r, yield_count, computed_cost: newComputed };
+        })
+      );
+    } finally {
+      setSavingCode(null);
+    }
+  }
+
+  function handleBatchCostChange(code: string, batchTotal: number) {
+    setBatchCosts((prev) => ({ ...prev, [code]: batchTotal }));
     setRows((prev) =>
-      prev.map((r) =>
-        r.product_code === code ? { ...r, computed_cost: cost, cost_source: "recipe" } : r
-      )
+      prev.map((r) => {
+        if (r.product_code !== code) return r;
+        const yieldCount = r.yield_count || 1;
+        return {
+          ...r,
+          computed_cost: Math.round(batchTotal / yieldCount),
+          cost_source: "recipe",
+        };
+      })
     );
   }
 
@@ -216,7 +267,7 @@ export function ProductsTable({
             <th className="px-4 py-3 font-medium">상품명</th>
             <th className="px-4 py-3 font-medium">분류</th>
             <th className="px-4 py-3 text-right font-medium">판매가</th>
-            <th className="px-4 py-3 text-right font-medium">원가</th>
+            <th className="px-4 py-3 text-right font-medium">원가(개당)</th>
             <th className="px-4 py-3 text-right font-medium">원가율</th>
             <th className="px-4 py-3 font-medium">방식</th>
           </tr>
@@ -231,7 +282,6 @@ export function ProductsTable({
             })
             .map((r) => {
               const isOpen = expanded === r.product_code;
-              // 직접 입력한 판매가가 있으면 그걸 우선 사용, 없으면 평균 판매가로 대체
               const effectiveSellPrice = r.sell_price ?? r.avg_sell_price;
               const costRate =
                 r.computed_cost != null && effectiveSellPrice > 0
@@ -283,13 +333,32 @@ export function ProductsTable({
                   {isOpen && (
                     <tr className="border-b border-border last:border-0">
                       <td colSpan={6} className="px-4 py-3">
-                        <p className="mb-2 text-xs font-medium text-text-secondary">
-                          레시피 (원재료 조합)
-                        </p>
+                        <div
+                          className="mb-2 flex items-center gap-2"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <p className="text-xs font-medium text-text-secondary">
+                            레시피 (원재료 조합)
+                          </p>
+                          <span className="mx-1 text-text-secondary">·</span>
+                          <span className="text-xs text-text-secondary">이 레시피 1회로 만들어지는 개수:</span>
+                          <input
+                            type="number"
+                            min={1}
+                            defaultValue={r.yield_count ?? 1}
+                            onBlur={(e) => saveYieldCount(r.product_code, e.target.value)}
+                            disabled={savingCode === r.product_code}
+                            className="w-16 rounded-md border border-border px-2 py-1 text-right text-xs tabular-nums outline-none focus:border-accent"
+                          />
+                          <span className="text-xs text-text-secondary">개</span>
+                        </div>
                         <RecipeEditor
                           productCode={r.product_code}
                           ingredients={ingredients}
-                          onCostChange={(cost) => handleRecipeCostChange(r.product_code, cost)}
+                          yieldCount={r.yield_count || 1}
+                          onBatchCostChange={(batchTotal) =>
+                            handleBatchCostChange(r.product_code, batchTotal)
+                          }
                         />
                         <div
                           className="mt-3 flex items-center gap-2"
@@ -308,8 +377,9 @@ export function ProductsTable({
                           />
                         </div>
                         <p className="mt-2 text-xs text-text-secondary">
-                          판매가 칸에 값을 직접 입력하면 그 값을 우선 쓰고, 비워두면 판매 데이터
-                          평균값을 참고로 사용해요.
+                          예: 반죽 1회(2,800원)로 치아바타 6개가 나오면 &ldquo;생산개수&rdquo;에
+                          6을 입력하세요 — 개당 원가가 자동 계산돼요. 음료처럼 1개씩 만드는
+                          상품은 기본값 1 그대로 두시면 돼요.
                         </p>
                       </td>
                     </tr>
