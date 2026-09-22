@@ -24,7 +24,8 @@ export interface ProductRow {
   cost_price: number | null; // 레시피 없을 때의 수동입력 폴백값
   computed_cost: number | null;
   cost_source: "recipe" | "manual" | null;
-  avg_sell_price: number;
+  sell_price: number | null; // 직접입력한 판매가 (우선순위 1)
+  avg_sell_price: number; // 판매 데이터 기반 평균 판매가 (직접입력 없을 때 폴백)
 }
 
 function formatWon(n: number) {
@@ -184,6 +185,21 @@ export function ProductsTable({
     }
   }
 
+  async function saveSellPrice(code: string, value: string) {
+    const sell_price = value === "" ? null : Number(value);
+    setSavingCode(code);
+    try {
+      await fetch("/api/products", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ product_code: code, sell_price }),
+      });
+      setRows((prev) => prev.map((r) => (r.product_code === code ? { ...r, sell_price } : r)));
+    } finally {
+      setSavingCode(null);
+    }
+  }
+
   function handleRecipeCostChange(code: string, cost: number) {
     setRows((prev) =>
       prev.map((r) =>
@@ -199,7 +215,7 @@ export function ProductsTable({
           <tr className="border-b border-border text-left text-text-secondary">
             <th className="px-4 py-3 font-medium">상품명</th>
             <th className="px-4 py-3 font-medium">분류</th>
-            <th className="px-4 py-3 text-right font-medium">판매가(참고)</th>
+            <th className="px-4 py-3 text-right font-medium">판매가</th>
             <th className="px-4 py-3 text-right font-medium">원가</th>
             <th className="px-4 py-3 text-right font-medium">원가율</th>
             <th className="px-4 py-3 font-medium">방식</th>
@@ -215,9 +231,11 @@ export function ProductsTable({
             })
             .map((r) => {
               const isOpen = expanded === r.product_code;
+              // 직접 입력한 판매가가 있으면 그걸 우선 사용, 없으면 평균 판매가로 대체
+              const effectiveSellPrice = r.sell_price ?? r.avg_sell_price;
               const costRate =
-                r.computed_cost != null && r.avg_sell_price > 0
-                  ? Math.round((r.computed_cost / r.avg_sell_price) * 100)
+                r.computed_cost != null && effectiveSellPrice > 0
+                  ? Math.round((r.computed_cost / effectiveSellPrice) * 100)
                   : null;
               return (
                 <>
@@ -233,8 +251,18 @@ export function ProductsTable({
                       {r.product_name}
                     </td>
                     <td className="px-4 py-2.5 text-text-secondary">{r.category}</td>
-                    <td className="px-4 py-2.5 text-right tabular-nums text-text-secondary">
-                      {r.avg_sell_price > 0 ? formatWon(Math.round(r.avg_sell_price)) : "-"}
+                    <td className="px-4 py-2.5 text-right">
+                      <input
+                        type="number"
+                        defaultValue={r.sell_price ?? ""}
+                        placeholder={
+                          r.avg_sell_price > 0 ? `${Math.round(r.avg_sell_price)}(평균)` : "미입력"
+                        }
+                        onClick={(e) => e.stopPropagation()}
+                        onBlur={(e) => saveSellPrice(r.product_code, e.target.value)}
+                        disabled={savingCode === r.product_code}
+                        className="w-28 rounded-md border border-border px-2 py-1 text-right tabular-nums outline-none focus:border-accent"
+                      />
                     </td>
                     <td className="px-4 py-2.5 text-right tabular-nums font-medium text-text-primary">
                       {r.computed_cost != null ? formatWon(r.computed_cost) : "미입력"}
@@ -279,6 +307,10 @@ export function ProductsTable({
                             className="w-24 rounded-md border border-border px-2 py-1 text-right text-xs tabular-nums outline-none focus:border-accent"
                           />
                         </div>
+                        <p className="mt-2 text-xs text-text-secondary">
+                          판매가 칸에 값을 직접 입력하면 그 값을 우선 쓰고, 비워두면 판매 데이터
+                          평균값을 참고로 사용해요.
+                        </p>
                       </td>
                     </tr>
                   )}
