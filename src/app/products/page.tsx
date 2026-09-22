@@ -9,7 +9,7 @@ export default async function ProductsPage() {
     await Promise.all([
       supabaseAdmin
         .from("products")
-        .select("product_code, product_name, category, cost_price, sell_price"),
+        .select("product_code, product_name, category, cost_price, sell_price, yield_count"),
       supabaseAdmin.from("sales_by_product").select("product_code, net_amount, quantity"),
       supabaseAdmin.from("ingredients").select("*").order("name"),
       getProductCostMap(),
@@ -35,6 +35,7 @@ export default async function ProductsPage() {
       cost_source: costInfo?.source ?? null,
       sell_price: p.sell_price,
       avg_sell_price: a && a.qty > 0 ? a.net / a.qty : 0,
+      yield_count: p.yield_count ?? 1,
     };
   });
 
@@ -49,8 +50,8 @@ export default async function ProductsPage() {
         </p>
       </div>
       <p className="mb-6 text-sm text-text-secondary">
-        상품을 클릭하면 레시피(원재료 조합)를 입력할 수 있어요. 판매가 칸에 값을 직접 입력하면 그
-        값을, 비워두면 판매 데이터 평균값을 원가율 계산에 사용해요.
+        상품을 클릭하면 레시피(원재료 조합)를 입력할 수 있어요. 반죽처럼 한 번에 여러 개가
+        나오는 경우 &ldquo;생산개수&rdquo;를 입력하면 개당 원가가 자동 계산돼요.
       </p>
 
       {rows.length === 0 ? (
