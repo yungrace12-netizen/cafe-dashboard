@@ -7,7 +7,9 @@ export const dynamic = "force-dynamic";
 export default async function ProductsPage() {
   const [{ data: products }, { data: salesByProduct }, { data: ingredients }, costMap] =
     await Promise.all([
-      supabaseAdmin.from("products").select("product_code, product_name, category, cost_price"),
+      supabaseAdmin
+        .from("products")
+        .select("product_code, product_name, category, cost_price, sell_price"),
       supabaseAdmin.from("sales_by_product").select("product_code, net_amount, quantity"),
       supabaseAdmin.from("ingredients").select("*").order("name"),
       getProductCostMap(),
@@ -31,6 +33,7 @@ export default async function ProductsPage() {
       cost_price: p.cost_price,
       computed_cost: costInfo?.cost ?? null,
       cost_source: costInfo?.source ?? null,
+      sell_price: p.sell_price,
       avg_sell_price: a && a.qty > 0 ? a.net / a.qty : 0,
     };
   });
@@ -46,8 +49,8 @@ export default async function ProductsPage() {
         </p>
       </div>
       <p className="mb-6 text-sm text-text-secondary">
-        상품을 클릭하면 레시피(원재료 조합)를 입력할 수 있어요. 원재료 사용량을 넣으면 원가가
-        자동 계산돼요. 사입 완제품처럼 레시피가 필요 없는 경우엔 직접 원가를 입력할 수도 있어요.
+        상품을 클릭하면 레시피(원재료 조합)를 입력할 수 있어요. 판매가 칸에 값을 직접 입력하면 그
+        값을, 비워두면 판매 데이터 평균값을 원가율 계산에 사용해요.
       </p>
 
       {rows.length === 0 ? (
